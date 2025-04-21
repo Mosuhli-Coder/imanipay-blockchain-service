@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+py-algorand-sdk
+python-dotenv
+httpx
