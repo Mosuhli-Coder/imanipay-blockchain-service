@@ -1,4 +1,5 @@
 fastapi
+gunicorn
 uvicorn
 py-algorand-sdk
 python-dotenv
