@@ -7,17 +7,17 @@ from fastapi import Header
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
-@router.post("/send", response_model=SendPaymentResponse) # Change the response model
-async def send_payment(payment_in: SendPaymentRequest, transaction_service: TransactionService = Depends()):
-    print(f"Received payment_in: {payment_in}")
-    """
-    Calculates the payment transaction details.  The Main Backend is responsible
-    for sending the transaction and recording it in the database.
-    """
-    return await transaction_service.send_payment(payment_in)
+# @router.post("/send", response_model=SendPaymentResponse) # Change the response model
+# async def send_payment(payment_in: SendPaymentRequest, transaction_service: TransactionService = Depends()):
+#     print(f"Received payment_in: {payment_in}")
+#     """
+#     Calculates the payment transaction details.  The Main Backend is responsible
+#     for sending the transaction and recording it in the database.
+#     """
+#     return await transaction_service.send_payment(payment_in)
 
 
-@router.post("/sent", response_model=SendPaymentResponse)
+@router.post("/send", response_model=SendPaymentResponse)
 async def send_funds(
     payment_in: SendPaymentRequest,
     transaction_service: TransactionService = Depends(),

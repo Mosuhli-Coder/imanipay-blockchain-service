@@ -79,7 +79,6 @@ class TransactionService:
         )
 
         params: SuggestedParams = self.get_suggested_params()
-
         if asset_id == 0:  # Sending Algos 
             txn = PaymentTxn(
                 sender=sender_address,
@@ -88,10 +87,13 @@ class TransactionService:
                 sp=params,
             )
         else:  # Sending a specific asset (stablecoin)
+            asset_info = algod_client.asset_info(asset_id)
+            decimals = asset_info['params']['decimals']
+            scaled_amount = int(amount * (10 ** decimals))
             txn = AssetTransferTxn(
                 sender=sender_address,
                 receiver=receiver_address,
-                amt=int(amount),  # Assuming stablecoin has a fixed number of decimals
+                amt=scaled_amount,  # Assuming stablecoin has a fixed number of decimals
                 index=asset_id,
                 sp=params,
             )
@@ -122,9 +124,7 @@ class TransactionService:
                 "fee": params.fee,
                 "first": params.first,
                 "last": params.last,
-                "ghash": params.genesis_hash,
-                "genesisID": params.genesis_id,
-                "genesisHash": params.genesis_hash,
+                "ghash": params.gh,
             },
             asset_id=asset_id,
             admin_wallet_address=self.admin_wallet_address,
