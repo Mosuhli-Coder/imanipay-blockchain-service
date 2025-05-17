@@ -1,7 +1,7 @@
 # /imanipay-blockchain-service/app/api/wallets.py
 from fastapi import APIRouter, Depends
 from app.services.wallets import WalletService
-from app.schemas import WalletResponse, BalanceResponse, BalanceRequest, ValidateWalletRequest, ValidateWalletResponse # Import the new schema
+from app.schemas import WalletResponse, BalanceResponse, BalanceRequest, ValidateWalletRequest, ValidateWalletResponse, CreateWalletRequest, CreateWalletOptInResponse # Import the new schema
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
@@ -22,3 +22,8 @@ async def validate_wallet(validate_in: ValidateWalletRequest, wallet_service: Wa
 async def create_wallet(wallet_service: WalletService = Depends()):
     """Creates a new Algorand wallet.  For DEVELOPMENT PURPOSES ONLY."""
     return await wallet_service.create_wallet()
+
+@router.post("/create-with-optin", response_model=CreateWalletOptInResponse)
+async def create_wallet_with_optin(create_in: CreateWalletRequest, wallet_service: WalletService = Depends()):
+    """Creates a new Algorand wallet, opts it into USDC, and associates it with a user ID."""
+    return await wallet_service.generate_and_opt_in_wallet(create_in.user_id)
