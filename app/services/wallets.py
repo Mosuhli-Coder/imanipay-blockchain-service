@@ -1,6 +1,7 @@
 # /imanipay-blockchain-service/app/services/wallets.py
 from algosdk import account, mnemonic
 from algosdk.v2client import algod
+from algosdk.transaction import  PaymentTxn, AssetTransferTxn, assign_group_id
 from app.core.config import settings
 from app.schemas import WalletResponse, BalanceResponse, BalanceRequest, ValidateWalletRequest, ValidateWalletResponse # Import the new schema
 from typing import Dict
@@ -10,9 +11,37 @@ headers = {
 }
 
 class WalletService:
-    def __init__(self):
-        self.algod_client = algod.AlgodClient(settings.ALGORAND_API_KEY, settings.ALGORAND_NODE_URL, headers=headers)
+    def __init__(self, network: str = "testnet"):
+        self.algod_client = algod.AlgodClient(
+            settings.ALGORAND_API_KEY,
+            settings.ALGORAND_NODE_URL,
+            headers={"X-API-Key": settings.ALGORAND_API_KEY}
+        )
 
+        self.usdc_asset_id = int(settings.USDC_ASSET_ID)  # assumes it's a string in .env
+
+        if not settings.FUNDER_MNEMONIC_KEY:
+            raise ValueError("FUNDER_MNEMONIC environment variable is not set")
+        
+        self.funder_address = settings.IMANIPAY_WALLET_ADDRESS
+        if not self.funder_address:
+            raise ValueError("IMANIPAY_WALLET_ADDRESS environment variable is not set")
+
+        self.network = network
+        self.funder_mnemonic = settings.FUNDER_MNEMONIC_KEY
+
+    def get_private_key_from_mnemonic(self, stored_mnemonic: str) -> str:
+        """
+        Derives the private key from a mnemonic phrase.
+        """
+        private_key = mnemonic.to_private_key(stored_mnemonic)
+        return private_key
+
+    async def wait_for_confirmation(self, txid):
+        while True:
+            tx_info = await self.algod_client.pending_transaction_info(txid)
+            if tx_info.get("confirmed-round", 0) > 0:
+                break
     async def get_balance(self, balance_request: BalanceRequest) -> BalanceResponse:
         """Retrieves the balance of a given Algorand wallet address directly from the blockchain."""
         wallet_address = balance_request.wallet_address
@@ -23,7 +52,7 @@ class WalletService:
             for asset in account_info.get("assets", []):
                 if "asset-id" in asset:
                     asset_id = asset["asset-id"]
-                    asset_info = await self.algod_client.asset_info(asset_id).do()
+                    asset_info = self.algod_client.asset_info(asset_id)
                     decimals = asset_info.get("params", {}).get("decimals", 0)
                     balances[asset_id] = asset.get("amount", 0) / (10 ** decimals)
 
@@ -68,3 +97,81 @@ class WalletService:
         print("Mnemonic:", mnemonic_phrase)  # This is the one you must save securely.
         return WalletResponse(wallet_address=address, private_key=private_key, user_id="cm9mmryqn0000iiacyvegcftm") # Include private_key in the response
 
+        # Example usage (assuming you have the mnemonic stored in your database)
+
+
+        # stored_mnemonic_in_db = "your 25-word mnemonic phrase here..."
+    
+    async def generate_and_opt_in_wallet(self, user_id: str) -> dict:
+        """
+        Generates a new Algorand wallet for a user, opts it into USDC, and funds it from the funder's wallet.
+        """
+        # Check if the user_id is valid (e.g., exists in your database)
+        if not user_id:
+            raise ValueError("Invalid user ID provided.")
+
+        # Step 1: Generate new wallet for user
+        user_private_key, user_address = account.generate_account()
+        user_mnemonic_phrase = mnemonic.from_private_key(user_private_key)
+        print("User Address:", user_address)
+
+        try:
+            # Step 2: Derive funder's private key
+            funder_private_key = self.get_private_key_from_mnemonic(self.funder_mnemonic)
+
+            # Step 3: Get transaction parameters
+            params = self.algod_client.suggested_params()
+
+            # Step 4: Create funding transaction
+            min_balance = 300_000  # 0.3 ALGO
+            funding_txn = PaymentTxn(
+                sender=self.funder_address,
+                receiver=user_address,
+                amt=min_balance,
+                sp=params
+            )
+
+            # Step 5: Create opt-in transaction (0 amount transfer to self)
+            opt_in_txn = AssetTransferTxn(
+                sender=user_address,
+                receiver=user_address,
+                amt=0,
+                index=self.usdc_asset_id,
+                sp=params
+            )
+
+            # Step 6: Assign group ID to both transactions
+            group = [funding_txn, opt_in_txn]
+            assign_group_id(group)
+            funding_txn, opt_in_txn = group  # update transactions with group ID
+
+            # Step 7: Sign transactions
+            signed_funding_txn = funding_txn.sign(funder_private_key)
+            signed_optin_txn = opt_in_txn.sign(user_private_key)  # ✅ user signs their txn
+
+            # Step 8: Send group
+            txid = self.algod_client.send_transactions([signed_funding_txn, signed_optin_txn])
+
+            print(f"Transactions sent with ID: {txid}")
+
+            # Step 9: Wait for confirmation
+            self.algod_client.pending_transaction_info(txid)
+
+            return {
+                "user_id": user_id,
+                "wallet_address": user_address,
+                "opted_in_usdc": True,
+                "network": self.network,
+                "mnemonic_phrase": user_mnemonic_phrase,
+            }
+
+        except Exception as e:
+            print(f"Error generating and opting-in wallet for user {user_id}: {e}")
+            return {
+                "user_id": user_id,
+                "wallet_address": None,
+                "opted_in_usdc": False,
+                "network": self.network,
+                "mnemonic_phrase": None,
+                "error": str(e),
+            }

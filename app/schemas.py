@@ -58,3 +58,14 @@ class SendPaymentResponse(BaseModel): #  Define the new response schema
     params: Dict #  Dictionary of the params
     asset_id: int
     admin_wallet_address: str
+
+class CreateWalletRequest(BaseModel):
+    user_id: str
+
+class CreateWalletOptInResponse(BaseModel):
+    user_id: str
+    wallet_address: Optional[str]  # ✅ Make it optional
+    opted_in_usdc: bool
+    network: str
+    mnemonic_phrase: Optional[str]
+    error: Optional[str] = None

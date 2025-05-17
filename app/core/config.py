@@ -19,8 +19,8 @@ class Settings:
     ALGORAND_API_KEY: str = os.getenv("ALGORAND_API_KEY")
     ALGORAND_NETWORK: str = os.getenv("ALGORAND_NETWORK", "testnet")
     IMANIPAY_WALLET_ADDRESS: str = os.getenv("IMANIPAY_WALLET_ADDRESS")
-    DEPLOYER_MNEMONIC_KEY: str = os.getenv("DEPLOYER_MNEMONIC_KEY")
-    # IMANIPAY_WALLET_PRIVATE_KEY: str = os.getenv("IMANIPAY_WALLET_PRIVATE_KEY")
+    FUNDER_MNEMONIC_KEY: str = os.getenv("FUNDER_MNEMONIC_KEY")
+    USDC_ASSET_ID = 10458941 if ALGORAND_NETWORK == "testnet" else os.getenv("USDC_ASSET_ID")
 
     # def print_debug(self):
     #     print("Debugging Settings:")
@@ -28,7 +28,8 @@ class Settings:
     #     print("ALGORAND_API_KEY:", self.ALGORAND_API_KEY)
     #     print("ALGORAND_NETWORK:", self.ALGORAND_NETWORK)
     #     print("IMANIPAY_WALLET_ADDRESS:", self.IMANIPAY_WALLET_ADDRESS)
-
+    #     print("FUNDER_MNEMONIC_KEY:", self.FUNDER_MNEMONIC_KEY)
+    #     print("USDC_ASSET_ID:", self.USDC_ASSET_ID)
     #     print("PROJECT_NAME:", self.PROJECT_NAME)
 
     def validate(self):
