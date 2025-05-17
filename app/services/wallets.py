@@ -5,6 +5,7 @@ from algosdk.transaction import  PaymentTxn, AssetTransferTxn, assign_group_id
 from app.core.config import settings
 from app.schemas import WalletResponse, BalanceResponse, BalanceRequest, ValidateWalletRequest, ValidateWalletResponse # Import the new schema
 from typing import Dict
+from cryptography.fernet import Fernet
 
 headers = {
     "X-API-Key": settings.ALGORAND_API_KEY
@@ -29,13 +30,33 @@ class WalletService:
 
         self.network = network
         self.funder_mnemonic = settings.FUNDER_MNEMONIC_KEY
-
+        self.fernet_key = settings.FERNET_KEY
+        
     def get_private_key_from_mnemonic(self, stored_mnemonic: str) -> str:
         """
         Derives the private key from a mnemonic phrase.
         """
         private_key = mnemonic.to_private_key(stored_mnemonic)
         return private_key
+
+    def _encrypt_mnemonic(self, mnemonic_phrase: str) -> str:
+        key = self.fernet_key
+        print(f"FERNET_KEY: {key}")  # Log the key for debugging
+        print(f"FERNET_KEY: {self.fernet_key}")
+        if not key:
+            raise ValueError("FERNET_KEY is not set in environment variables")
+        fernet = Fernet(key.encode())
+        encrypted = fernet.encrypt(mnemonic_phrase.encode())
+        return encrypted.decode()
+
+    def _decrypt_mnemonic(self, encrypted_mnemonic: str) -> str:
+        key = self.fernet_key
+        if not key:
+            raise ValueError("FERNET_KEY is not set in environment variables")
+        fernet = Fernet(key.encode())
+        decrypted = fernet.decrypt(encrypted_mnemonic.encode())
+        return decrypted.decode()
+
 
     async def wait_for_confirmation(self, txid):
         while True:
@@ -156,13 +177,14 @@ class WalletService:
 
             # Step 9: Wait for confirmation
             self.algod_client.pending_transaction_info(txid)
+            encrypted = self._encrypt_mnemonic(user_mnemonic_phrase)
 
             return {
                 "user_id": user_id,
                 "wallet_address": user_address,
                 "opted_in_usdc": True,
                 "network": self.network,
-                "mnemonic_phrase": user_mnemonic_phrase,
+                "encrypted_mnemonic_phrase": encrypted,
             }
 
         except Exception as e:
