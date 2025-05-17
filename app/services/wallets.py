@@ -52,7 +52,7 @@ class WalletService:
             for asset in account_info.get("assets", []):
                 if "asset-id" in asset:
                     asset_id = asset["asset-id"]
-                    asset_info = await self.algod_client.asset_info(asset_id).do()
+                    asset_info = self.algod_client.asset_info(asset_id)
                     decimals = asset_info.get("params", {}).get("decimals", 0)
                     balances[asset_id] = asset.get("amount", 0) / (10 ** decimals)
 
@@ -110,17 +110,6 @@ class WalletService:
         if not user_id:
             raise ValueError("Invalid user ID provided.")
 
-        print(f"Generating and opting-in wallet for user: {user_id}")
-
-                # Convert mnemonic to private key
-        private_key = mnemonic.to_private_key(self.funder_mnemonic)
-
-        # Derive address from private key
-        address = account.address_from_private_key(private_key)
-
-        print("Wallet Address:", address)
-        print("funder_address:", self.funder_address)
-
         # Step 1: Generate new wallet for user
         user_private_key, user_address = account.generate_account()
         user_mnemonic_phrase = mnemonic.from_private_key(user_private_key)
@@ -166,7 +155,7 @@ class WalletService:
             print(f"Transactions sent with ID: {txid}")
 
             # Step 9: Wait for confirmation
-            confirmed_txn =  self.algod_client.pending_transaction_info(txid)
+            self.algod_client.pending_transaction_info(txid)
 
             return {
                 "user_id": user_id,
@@ -186,17 +175,3 @@ class WalletService:
                 "mnemonic_phrase": None,
                 "error": str(e),
             }
-
-    # def get_private_key_from_mnemonic(stored_mnemonic: str) -> str:
-        # """
-        # Derives the private key from a mnemonic phrase.
-        # """
-        # private_key = mnemonic.to_private_key(stored_mnemonic)
-        # return private_key
-
-        # # Example usage (assuming you have the mnemonic stored in your database)
-        # stored_mnemonic_in_db = "your 25-word mnemonic phrase here..."
-        # derived_private_key = get_private_key_from_mnemonic(stored_mnemonic_in_db)
-        # print("Derived Private Key:", derived_private_key)
-        # address = account.address_from_private_key(derived_private_key)
-        # print("Derived Address:", address)
