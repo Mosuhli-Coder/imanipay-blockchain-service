@@ -21,7 +21,6 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 async def send_funds(
     payment_in: SendPaymentRequest,
     transaction_service: TransactionService = Depends(),
-    # user_id: Annotated[str | None, Header()] = None  # Example: Get user ID from header
 ):
     """Allows a user to send Algos or stablecoins."""
     user_id = payment_in.user_id
