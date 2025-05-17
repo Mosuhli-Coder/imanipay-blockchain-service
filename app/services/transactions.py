@@ -1,12 +1,17 @@
 # /imanipay-blockchain-service/app/services/transactions.py
 import logging
 from algosdk.v2client import algod
-from algosdk import transaction, account
-from algosdk.transaction import ApplicationCallTxn, SuggestedParams, PaymentTxn, AssetTransferTxn
+from algosdk import transaction, account, mnemonic
+from algosdk.transaction import (
+    ApplicationCallTxn,
+    SuggestedParams,
+    PaymentTxn,
+    AssetTransferTxn,
+)
 from algosdk.encoding import encode_address, decode_address
 from app.core.config import settings
 from app.schemas import SendPaymentRequest, SendPaymentResponse
-import json
+from app.services.wallets import WalletService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,90 +24,100 @@ TRANSACTION_FEES = [
     {"min": 1000, "percentageCharge": 0, "flatCharge": 5},
 ]
 
+
 class TransactionService:
     def __init__(self):
-        self.algod_client = algod.AlgodClient(settings.ALGORAND_API_KEY, settings.ALGORAND_NODE_URL)
+        self.algod_client = algod.AlgodClient(
+            settings.ALGORAND_API_KEY,
+            settings.ALGORAND_NODE_URL,
+            headers={"X-API-Key": settings.ALGORAND_API_KEY},
+        )
+
+        self.network = settings.ALGORAND_NETWORK
+        self.usdc_asset_id = int(settings.USDC_ASSET_ID)
+
+        if not settings.FUNDER_MNEMONIC_KEY:
+            raise ValueError("FUNDER_MNEMONIC_KEY is not set")
+
+        # self.funder_private_key = WalletService.get_private_key_from_mnemonic(settings.FUNDER_MNEMONIC_KEY)
+        # self.funder_address = mnemonic.to_public_key(settings.FUNDER_MNEMONIC_KEY)
         self.admin_wallet_address = settings.IMANIPAY_WALLET_ADDRESS
-        self.deployer_private_key = settings.DEPLOYER_PRIVATE_KEY
-        if not self.deployer_private_key:
-            raise ValueError("DEPLOYER_PRIVATE_KEY is not set. Cannot send fees.")
-        self.sender_account = account.Account.from_private_key(self.deployer_private_key)  # Derive sender account
-        self.app_id = settings.PAYMENT_CONTRACT_APP_ID # Load app ID from settings
-        if not self.app_id:
-            raise ValueError("PAYMENT_CONTRACT_APP_ID is not set.  You must deploy the contract.")
 
     def calculate_transaction_fee(self, amount: float) -> float:
         """Calculates the transaction fee based on the amount."""
         for tier in TRANSACTION_FEES:
             if tier.get("max") is None and amount >= tier["min"]:
-                return amount * tier.get("percentageCharge", 0) + tier.get("flatCharge", 0)
-            if tier.get("min", 0) <= amount <= tier.get("max", float('inf')):
-                return amount * tier.get("percentageCharge", 0) + tier.get("flatCharge", 0)
+                return amount * tier.get("percentageCharge", 0) + tier.get(
+                    "flatCharge", 0
+                )
+            if tier.get("min", 0) <= amount <= tier.get("max", float("inf")):
+                return amount * tier.get("percentageCharge", 0) + tier.get(
+                    "flatCharge", 0
+                )
         return 0  # Default to no fee
 
-    async def send_payment(self, payment_in: SendPaymentRequest) -> SendPaymentResponse:
+    def get_suggested_params(self) -> SuggestedParams:
+        """Gets suggested transaction parameters from the Algorand client."""
+        return self.algod_client.suggested_params()
+
+    async def send_payment(
+        self,
+        payment_in: SendPaymentRequest,
+        sender_private_key: str,
+        sender_address: str,
+    ) -> SendPaymentResponse:
         """
-        Calculates the transaction details and sends the transaction to the Algorand blockchain
-        using a smart contract.
+        Allows a user to send Algos or stablecoins to another user.
         """
         algod_client = self.algod_client
-        sender = self.sender_account.address
-        sender_private_key = self.deployer_private_key  # Use the deployer key
-        app_id = self.app_id
+        receiver_address = payment_in.receiver_wallet_address
+        amount = payment_in.amount
+        asset_id = payment_in.asset_id
 
-        # 1. Calculate the transaction fee.
-        fee_amount = self.calculate_transaction_fee(payment_in.amount)
-        total_amount_to_send = payment_in.amount + fee_amount # Sender pays amount + fee
-        actual_payment_amount = payment_in.amount  # Contract sends the amount
-
-        print(f"Calculated fee: {fee_amount}, Total amount from sender: {total_amount_to_send}, Amount to receiver: {actual_payment_amount}")
-
-        # 2. Get transaction parameters.
-        params: SuggestedParams = await algod_client.suggested_params()
-
-        # 3. Prepare the smart contract call.
-        app_call_txn = ApplicationCallTxn(
-            sender=sender,
-            sp=params,
-            index=app_id,  # The Application ID of the deployed contract
-            on_complete=transaction.OnComplete.NoOpOC,  # NoOp call
-            application_args=[
-                encode_address(payment_in.receiver_wallet_address),  # Receiver address (encoded)
-                actual_payment_amount.to_bytes(8, "big"),  # Amount (as bytes)
-                fee_amount.to_bytes(8, "big"), # Fee amount (as bytes)
-            ],
+        print(
+            f"Sending {amount} of asset {asset_id} from {sender_address} to {receiver_address}"
         )
 
-        # 4. Create a transaction that pays the smart contract, including the fee.
-        payment_txn = PaymentTxn(
-            sender=sender,
-            sp=params,
-            receiver=sender,  # Send to yourself (contract address will handle it)
-            amt=total_amount_to_send, # Sender pays amount + fee
-        )
-        # Group the transactions
-        grouped_transaction = transaction.Group([app_call_txn, payment_txn])
+        params: SuggestedParams = self.get_suggested_params()
 
+        if asset_id == 0:  # Sending Algos 
+            txn = PaymentTxn(
+                sender=sender_address,
+                receiver=receiver_address,
+                amt=int(amount * 1_000_000),  # Convert Algos to microAlgos
+                sp=params,
+            )
+        else:  # Sending a specific asset (stablecoin)
+            txn = AssetTransferTxn(
+                sender=sender_address,
+                receiver=receiver_address,
+                amt=int(amount),  # Assuming stablecoin has a fixed number of decimals
+                index=asset_id,
+                sp=params,
+            )
 
-        # 5. Sign the grouped transaction
-        signed_group = grouped_transaction.sign(sender_private_key)
-        # signed_txn = app_call_txn.sign(sender_private_key)  # Sign the transaction
+        # Sign the transaction
+        signed_txn = txn.sign(sender_private_key)
 
-        # 6. Send the transaction to the blockchain
+        # Send the transaction
         try:
-            txid = await algod_client.send_transactions(signed_group) # Send the group
-            logger.info(f"Transaction group sent with ID: {txid}")
+            txid =  algod_client.send_transaction(signed_txn)
+            logger.info(f"Transaction sent with ID: {txid}")
+            # Wait for confirmation (optional, but recommended for user feedback)
+            pending_txn =  transaction.wait_for_confirmation(algod_client, txid, 4)
+            logger.info(
+                f"Transaction confirmed in round {pending_txn['confirmed-round']}"
+            )
         except Exception as e:
             logger.error(f"Error sending transaction: {e}")
-            raise  # Re-raise the exception to be handled by FastAPI
+            raise
 
-        # 7. Return the transaction data. Include the txid.
         return SendPaymentResponse(
-            sender_wallet_address=sender,
-            receiver_wallet_address=payment_in.receiver_wallet_address,
-            amount=payment_in.amount,
-            actual_payment_amount=actual_payment_amount,
-            fee_amount=fee_amount,
+            sender_wallet_address=sender_address,
+            receiver_wallet_address=receiver_address,
+            amount=amount,
+            actual_payment_amount=amount,  # For direct transfer, actual is the same
+            fee_amount=params.fee / 1_000_000,  # Fee in Algos
             params={
                 "fee": params.fee,
                 "first": params.first,
@@ -111,7 +126,51 @@ class TransactionService:
                 "genesisID": params.genesis_id,
                 "genesisHash": params.genesis_hash,
             },
-            asset_id=payment_in.asset_id,
+            asset_id=asset_id,
             admin_wallet_address=self.admin_wallet_address,
-            txid=txid,  # Include the transaction ID in the response
+            txid=txid,
         )
+
+    # *** ADD THIS FUNCTION ***
+    async def get_user_wallet_info(self, user_id: str):  # -> Optional[Dict[str, str]]:
+        """
+        Retrieves the wallet address and (decrypted) private key for a given user ID.
+        **IMPORTANT: This function must securely retrieve and decrypt the private key.**
+        """
+        # Replace this with your actual database interaction logic
+        # Example using SQLAlchemy (adapt to your ORM or database):
+        # db: Session = Depends(get_db) # If using FastAPI Depends for DB session
+        # user_wallet = db.query(UserWallet).filter(UserWallet.user_id == user_id).first()
+        # if user_wallet:
+        #     # Assuming user_wallet.encrypted_mnemonic holds the encrypted mnemonic
+        #     decrypted_mnemonic = self._decrypt_mnemonic(user_wallet.encrypted_mnemonic)
+        #     private_key = self.get_private_key_from_mnemonic(decrypted_mnemonic)
+        #     return {
+        #         "wallet_address": user_wallet.wallet_address,
+        #         "private_key": private_key
+        #     }
+        # return None
+        # *** SECURE KEY RETRIEVAL IMPLEMENTATION REQUIRED HERE ***
+        # This is a placeholder - replace with your actual secure retrieval
+        # and decryption logic.
+        # You might need to inject a dependency for your database session.
+        print(
+            f"Simulating retrieval of wallet info for user: {user_id} - SECURE IMPLEMENTATION NEEDED"
+        )
+        # In a real scenario, you would fetch from your database, decrypt, and derive.
+        # For this example, we'll return a placeholder (DO NOT DO THIS IN PRODUCTION)
+        #         {
+        #     "user_id": "some_unique_user_identifier",
+        #     "wallet_address": "DVNLHVNF36VI5J74UFNOO3DELPKQSYFNVBFD2C3NKV7SDI2PGU6QYZJKGQ",
+        #     "opted_in_usdc": true,
+        #     "network": "testnet",
+        #     "mnemonic_phrase": "siren injury come emotion utility pond shock skirt chimney tag coin palace lumber version south olive sock away elegant tomato message soul hazard about damp",
+        #     "error": null
+        # }
+        if user_id == "some_user":
+            mnemonic_phrase = "siren injury come emotion utility pond shock skirt chimney tag coin palace lumber version south olive sock away elegant tomato message soul hazard about damp"  # Replace with secure retrieval
+            wallet_service = WalletService()
+            private_key = wallet_service.get_private_key_from_mnemonic(mnemonic_phrase)
+            address = account.address_from_private_key(private_key)
+            return {"wallet_address": address, "private_key": private_key}
+        return None

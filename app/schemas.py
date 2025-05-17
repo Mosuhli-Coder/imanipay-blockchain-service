@@ -22,6 +22,7 @@ class SendPaymentRequest(BaseModel):
     receiver_wallet_address: str
     amount: float
     asset_id: int = 0  # 0 for ALGO, ASA ID for other assets
+    user_id: str
 
 class TransactionResponse(BaseModel):
     transaction_id: str
