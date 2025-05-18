@@ -1,6 +1,7 @@
 # /imanipay-blockchain-service/app/services/transactions.py
 import logging
 from algosdk.v2client import algod
+from algosdk.util import algos_to_microalgos
 from algosdk import transaction, account, mnemonic
 from algosdk.transaction import (
     ApplicationCallTxn,
@@ -59,6 +60,36 @@ class TransactionService:
         """Gets suggested transaction parameters from the Algorand client."""
         return self.algod_client.suggested_params()
 
+    async def get_balance(self, balance_in: dict) -> dict:
+        """Retrieves the balance of a given Algorand wallet address."""
+        wallet_address = balance_in.get("wallet_address")
+        if not wallet_address:
+            raise ValueError("Wallet address is required")
+        account_info = self.algod_client.account_info(wallet_address)
+        balance = (
+            account_info.get("amount", 0) / 1_000_000
+        )  # Convert microAlgos to Algos
+        assets = account_info.get("assets", [])
+        asset_balances = {}
+        for asset in assets:
+            asset_info = self.algod_client.asset_info(asset["asset-id"])
+            if (
+                asset_info
+                and "params" in asset_info
+                and "decimals" in asset_info["params"]
+            ):
+                decimals = asset_info["params"]["decimals"]
+                asset_balances[asset["asset-id"]] = asset["amount"] / (10**decimals)
+            else:
+                asset_balances[asset["asset-id"]] = asset[
+                    "amount"
+                ]  # Handle cases where decimals might not be available
+
+        return {
+            "wallet_address": wallet_address,
+            "balance": balance,
+            "assets": asset_balances,
+        }
 
     async def send_payment(
         self,
@@ -67,14 +98,14 @@ class TransactionService:
         sender_address: str,
     ) -> SendPaymentResponse:
         """
-        Allows a user to send Algos or stablecoins (by asset name) to another user.
+        Allows a user to send Algos or stablecoins (by asset name) to another user,
+        charging a fee for stablecoin transfers and checking for sufficient balance.
         """
         algod_client = self.algod_client
         receiver_address = payment_in.receiver_wallet_address
         amount = payment_in.amount
         asset_name = payment_in.asset_name.upper()  # Use name instead of asset_id
 
-        # Map asset name to ID using environment settings
         asset_map = {
             "ALGO": 0,
             "USDC": int(settings.USDC_ASSET_ID),
@@ -92,54 +123,120 @@ class TransactionService:
 
         params: SuggestedParams = self.get_suggested_params()
 
+        txn = None
+        fee_txn = None
+        signed_txns = []
+        actual_payment_amount = amount
+        calculated_fee = 0.0
+
+        sender_balance_info = await self.get_balance({"wallet_address": sender_address})
+
         if asset_id == 0:  # Sending Algos
-            scaled_amount = int(amount * 1_000_000)
+            scaled_amount = algos_to_microalgos(amount)
+            total_cost = scaled_amount + params.fee  # Include transaction fee for Algo
+            if sender_balance_info["balance"] * 1_000_000 < total_cost:
+                raise ValueError("Insufficient Algo balance")
             txn = PaymentTxn(
                 sender=sender_address,
                 receiver=receiver_address,
                 amt=scaled_amount,
                 sp=params,
             )
-        else:  # Sending a specific asset
+            signed_txns.append(txn.sign(sender_private_key))
+        else:  # Sending a specific asset (stablecoin)
             asset_info = algod_client.asset_info(asset_id)
-            decimals = asset_info["params"]["decimals"]
-            scaled_amount = int(amount * (10**decimals))
-            txn = AssetTransferTxn(
-                sender=sender_address,
-                receiver=receiver_address,
-                amt=scaled_amount,
-                index=asset_id,
-                sp=params,
-            )
+            if (
+                asset_info
+                and "params" in asset_info
+                and "decimals" in asset_info["params"]
+            ):
+                decimals = asset_info["params"]["decimals"]
+                scaled_amount = int(amount * (10**decimals))
+                calculated_fee = self.calculate_transaction_fee(amount)
+                scaled_fee = int(calculated_fee * (10**decimals))
+                total_cost = scaled_amount + scaled_fee
 
-        signed_txn = txn.sign(sender_private_key)
+                sender_asset_balance = sender_balance_info["assets"].get(asset_id, 0)
+
+                if sender_asset_balance < amount + calculated_fee:
+                    raise ValueError(f"Insufficient {asset_name} balance")
+
+                print("About to create AssetTransferTxn...")
+                txn = AssetTransferTxn(
+                    sender=sender_address,
+                    receiver=receiver_address,
+                    amt=scaled_amount,
+                    index=asset_id,
+                    sp=params,
+                )
+                signed_txn = txn.sign(sender_private_key)
+                signed_txns = [signed_txn]
+
+                # Create both transactions first (unsigned)
+                txn = AssetTransferTxn(
+                    sender=sender_address,
+                    receiver=receiver_address,
+                    amt=scaled_amount,
+                    index=asset_id,
+                    sp=params,
+                )
+
+                if calculated_fee > 0:
+                    fee_txn = AssetTransferTxn(
+                        sender=sender_address,
+                        receiver=self.admin_wallet_address,
+                        amt=scaled_fee,
+                        index=asset_id,
+                        sp=params,
+                    )
+
+                    # Assign group ID before signing
+                    txgroup = transaction.calculate_group_id([txn, fee_txn])
+                    txn.group = txgroup
+                    fee_txn.group = txgroup
+
+                    # Now sign both
+                    signed_txn = txn.sign(sender_private_key)
+                    signed_fee_txn = fee_txn.sign(sender_private_key)
+
+                    signed_txns = [signed_txn, signed_fee_txn]
+                # else:
+                #     signed_txn = txn.sign(sender_private_key)
+                #     signed_txns = [signed_txn]
+
+                else:
+                    pass
+
+                if signed_txns:
+                    for i, stxn in enumerate(signed_txns):
+                        print(f"Signed Transaction object: {stxn}")
 
         try:
-            txid = algod_client.send_transaction(signed_txn)
-            logger.info(f"Transaction sent with ID: {txid}")
+            txid = algod_client.send_transactions(signed_txns)
+            logger.info(f"Transaction(s) sent with ID: {txid}")
             pending_txn = transaction.wait_for_confirmation(algod_client, txid, 4)
-            logger.info(f"Transaction confirmed in round {pending_txn['confirmed-round']}")
+            logger.info(
+                f"Transaction(s) confirmed in round {pending_txn['confirmed-round']}"
+            )
+            return SendPaymentResponse(
+                sender_wallet_address=sender_address,
+                receiver_wallet_address=receiver_address,
+                amount=amount,
+                actual_payment_amount=amount,
+                fee_amount=calculated_fee,
+                params={
+                    "fee": params.fee,
+                    "first": params.first,
+                    "last": params.last,
+                    "ghash": params.gh,
+                },
+                asset_id=asset_id,
+                admin_wallet_address=self.admin_wallet_address,  # Using ImaniPay address as admin for fees
+                txid=txid,
+            )
         except Exception as e:
-            logger.error(f"Error sending transaction: {e}")
+            logger.error(f"Error sending transaction(s): {e}")
             raise
-
-        return SendPaymentResponse(
-            sender_wallet_address=sender_address,
-            receiver_wallet_address=receiver_address,
-            amount=amount,
-            actual_payment_amount=amount,
-            fee_amount=params.fee / 1_000_000,
-            params={
-                "fee": params.fee,
-                "first": params.first,
-                "last": params.last,
-                "ghash": params.gh,
-            },
-            asset_id=asset_id,
-            admin_wallet_address=self.admin_wallet_address,
-            txid=txid,
-        )
-        # Add any additional logic for sending stablecoins here
 
     async def get_user_wallet_info(self, user_wallet: dict) -> dict | None:
         """
@@ -163,14 +260,12 @@ class TransactionService:
             decrypted_mnemonic = wallet_service._decrypt_mnemonic(encrypted_mnemonic)
 
             # Derive private key
-            private_key = wallet_service.get_private_key_from_mnemonic(decrypted_mnemonic)
+            private_key = wallet_service.get_private_key_from_mnemonic(
+                decrypted_mnemonic
+            )
 
-            return {
-                "wallet_address": wallet_address,
-                "private_key": private_key
-            }
+            return {"wallet_address": wallet_address, "private_key": private_key}
         except Exception as e:
             # You can add proper logging here
             print(f"Failed to retrieve wallet info: {e}")
             return None
-

@@ -25,17 +25,23 @@ async def send_funds(
     transaction_service: TransactionService = Depends(),
 ):
     """Allows a user to send Algos or stablecoins."""
-    user_wallet_data = payment_in.user_wallet
-    if not user_wallet_data or "encrypted_mnemonic" not in user_wallet_data or "wallet_address" not in user_wallet_data:
-        raise HTTPException(status_code=400, detail="Invalid user wallet data provided")
+    try:
+        user_wallet_data = payment_in.user_wallet
+        if not user_wallet_data or "encrypted_mnemonic" not in user_wallet_data or "wallet_address" not in user_wallet_data:
+            raise HTTPException(status_code=400, detail="Invalid user wallet data provided")
 
-    sender_wallet_info = await transaction_service.get_user_wallet_info(user_wallet_data)
-    print(f"Sender wallet data: {user_wallet_data}")
-    print(f"Sender wallet info: {sender_wallet_info}")
-    if not sender_wallet_info or "private_key" not in sender_wallet_info or "wallet_address" not in sender_wallet_info:
-        raise HTTPException(status_code=500, detail="Failed to retrieve sender wallet details")
+        sender_wallet_info = await transaction_service.get_user_wallet_info(user_wallet_data)
+        if not sender_wallet_info or "private_key" not in sender_wallet_info or "wallet_address" not in sender_wallet_info:
+            raise HTTPException(status_code=500, detail="Failed to retrieve sender wallet details")
 
-    sender_private_key = sender_wallet_info["private_key"]
-    sender_address = sender_wallet_info["wallet_address"]
+        sender_private_key = sender_wallet_info["private_key"]
+        print(f"Sender Private Key: {sender_private_key}")
+        sender_address = sender_wallet_info["wallet_address"]
+        print(f"Sender Address: {sender_address}")
 
-    return await transaction_service.send_payment(payment_in, sender_private_key, sender_address)
+
+        return await transaction_service.send_payment(payment_in, sender_private_key, sender_address)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transaction failed: {str(e)}")
