@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 
 # Define the transaction fee tiers.
 TRANSACTION_FEES = [
-    {"min": 0, "max": 100, "percentageCharge": 0.01, "flatCharge": 0},
-    {"min": 100, "max": 1000, "percentageCharge": 0.005, "flatCharge": 0},
-    {"min": 1000, "percentageCharge": 0, "flatCharge": 5},
+    {"min": 0, "max": 50, "percentageCharge": 0, "flatCharge": 0},                    # Free
+    {"min": 50, "max": 200, "percentageCharge": 0.005, "flatCharge": 0},             # 0.5%
+    {"min": 200, "max": 1000, "percentageCharge": 0.006, "flatCharge": 0},           # 0.6% — slight increase
+    {"min": 1000, "percentageCharge": 0.005, "flatCharge": 0, "maxFee": 7},          # 0.5% capped at $7
 ]
 
 
@@ -44,16 +45,22 @@ class TransactionService:
         self.admin_wallet_address = settings.IMANIPAY_WALLET_ADDRESS
 
     def calculate_transaction_fee(self, amount: float) -> float:
-        """Calculates the transaction fee based on the amount."""
+        """Calculates the transaction fee based on the amount using tiered structure."""
         for tier in TRANSACTION_FEES:
-            if tier.get("max") is None and amount >= tier["min"]:
-                return amount * tier.get("percentageCharge", 0) + tier.get(
-                    "flatCharge", 0
-                )
-            if tier.get("min", 0) <= amount <= tier.get("max", float("inf")):
-                return amount * tier.get("percentageCharge", 0) + tier.get(
-                    "flatCharge", 0
-                )
+            min_amount = tier.get("min", 0)
+            max_amount = tier.get("max", float("inf"))
+
+            if min_amount <= amount <= max_amount or (tier.get("max") is None and amount >= min_amount):
+                percentage_fee = amount * tier.get("percentageCharge", 0)
+                flat_fee = tier.get("flatCharge", 0)
+                total_fee = percentage_fee + flat_fee
+
+                # Apply maxFee cap if specified
+                if "maxFee" in tier:
+                    return min(total_fee, tier["maxFee"])
+
+                return total_fee
+
         return 0  # Default to no fee
 
     def get_suggested_params(self) -> SuggestedParams:
