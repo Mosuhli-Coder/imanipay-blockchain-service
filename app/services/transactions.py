@@ -139,50 +139,7 @@ class TransactionService:
             admin_wallet_address=self.admin_wallet_address,
             txid=txid,
         )
-
-    # *** ADD THIS FUNCTION ***
-    # async def get_user_wallet_info(self, user_id: str):  # -> Optional[Dict[str, str]]:
-    #     """
-    #     Retrieves the wallet address and (decrypted) private key for a given user ID.
-    #     **IMPORTANT: This function must securely retrieve and decrypt the private key.**
-    #     """
-    #     # Replace this with your actual database interaction logic
-    #     # Example using SQLAlchemy (adapt to your ORM or database):
-    #     # db: Session = Depends(get_db) # If using FastAPI Depends for DB session
-    #     # user_wallet = db.query(UserWallet).filter(UserWallet.user_id == user_id).first()
-    #     # if user_wallet:
-    #     #     # Assuming user_wallet.encrypted_mnemonic holds the encrypted mnemonic
-    #     #     decrypted_mnemonic = self._decrypt_mnemonic(user_wallet.encrypted_mnemonic)
-    #     #     private_key = self.get_private_key_from_mnemonic(decrypted_mnemonic)
-    #     #     return {
-    #     #         "wallet_address": user_wallet.wallet_address,
-    #     #         "private_key": private_key
-    #     #     }
-    #     # return None
-    #     # *** SECURE KEY RETRIEVAL IMPLEMENTATION REQUIRED HERE ***
-    #     # This is a placeholder - replace with your actual secure retrieval
-    #     # and decryption logic.
-    #     # You might need to inject a dependency for your database session.
-    #     print(
-    #         f"Simulating retrieval of wallet info for user: {user_id} - SECURE IMPLEMENTATION NEEDED"
-    #     )
-    #     # In a real scenario, you would fetch from your database, decrypt, and derive.
-    #     # For this example, we'll return a placeholder (DO NOT DO THIS IN PRODUCTION)
-    #     #         {
-    #     #     "user_id": "some_unique_user_identifier",
-    #     #     "wallet_address": "DVNLHVNF36VI5J74UFNOO3DELPKQSYFNVBFD2C3NKV7SDI2PGU6QYZJKGQ",
-    #     #     "opted_in_usdc": true,
-    #     #     "network": "testnet",
-    #     #     "mnemonic_phrase": "siren injury come emotion utility pond shock skirt chimney tag coin palace lumber version south olive sock away elegant tomato message soul hazard about damp",
-    #     #     "error": null
-    #     # }
-    #     if user_id == "some_user":
-    #         mnemonic_phrase = "siren injury come emotion utility pond shock skirt chimney tag coin palace lumber version south olive sock away elegant tomato message soul hazard about damp"  # Replace with secure retrieval
-    #         wallet_service = WalletService()
-    #         private_key = wallet_service.get_private_key_from_mnemonic(mnemonic_phrase)
-    #         address = account.address_from_private_key(private_key)
-    #         return {"wallet_address": address, "private_key": private_key}
-    #     return None
+        # Add any additional logic for sending stablecoins here
 
     async def get_user_wallet_info(self, user_wallet: dict) -> dict | None:
         """
@@ -198,20 +155,22 @@ class TransactionService:
             if not encrypted_mnemonic:
                 return None
 
+            wallet_address = user_wallet.get("wallet_address")
+            if not wallet_address:
+                return None
+
             # Decrypt the mnemonic
-            encrypted_mnemonic = user_wallet.encrypted_mnemonic_phrase
             decrypted_mnemonic = wallet_service._decrypt_mnemonic(encrypted_mnemonic)
-            # decrypted_mnemonic = self._decrypt_mnemonic(encrypted_mnemonic)
 
             # Derive private key
-            
             private_key = wallet_service.get_private_key_from_mnemonic(decrypted_mnemonic)
 
             return {
-                "wallet_address": user_wallet.get("wallet_address"),
+                "wallet_address": wallet_address,
                 "private_key": private_key
             }
         except Exception as e:
             # You can add proper logging here
             print(f"Failed to retrieve wallet info: {e}")
             return None
+

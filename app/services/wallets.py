@@ -30,8 +30,9 @@ class WalletService:
 
         self.network = network
         self.funder_mnemonic = settings.FUNDER_MNEMONIC_KEY
-        self.fernet_key = settings.FERNET_KEY
-        
+        # self.fernet_key = settings.FERNET_KEY
+        self.fernet_key = "gVFGVJAqMGQxAXoPWiHIvEAaZlwjTU6qWo2itZqdLtc="
+
     def get_private_key_from_mnemonic(self, stored_mnemonic: str) -> str:
         """
         Derives the private key from a mnemonic phrase.
@@ -104,25 +105,6 @@ class WalletService:
                 return ValidateWalletResponse(is_valid=False, wallet_address=wallet_address) #Consider if you want to raise
                 # raise Exception(f"Error validating wallet address: {e}") # Or raise.
 
-    async def create_wallet(self) -> WalletResponse:
-        """Creates a new Algorand wallet and returns the address and private key.  For development only."""
-        # private_key, address = account.generate_account()
-        # IMPORTANT:  In a real application, you would NEVER return the private key directly.
-        # This is ONLY for development and testing.  You would typically store the private key
-        # securely and associate it with a user in your main backend's database.
-        private_key, address = account.generate_account()
-        mnemonic_phrase = mnemonic.from_private_key(private_key)
-
-        print("Address:", address)
-        print("Private Key:", private_key)
-        print("Mnemonic:", mnemonic_phrase)  # This is the one you must save securely.
-        return WalletResponse(wallet_address=address, private_key=private_key, user_id="cm9mmryqn0000iiacyvegcftm") # Include private_key in the response
-
-        # Example usage (assuming you have the mnemonic stored in your database)
-
-
-        # stored_mnemonic_in_db = "your 25-word mnemonic phrase here..."
-    
     async def generate_and_opt_in_wallet(self, user_id: str) -> dict:
         """
         Generates a new Algorand wallet for a user, opts it into USDC, and funds it from the funder's wallet.

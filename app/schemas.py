@@ -23,6 +23,7 @@ class SendPaymentRequest(BaseModel):
     amount: float
     asset_name: str
     user_id: str
+    user_wallet: Dict[str, str]  # Expecting a dictionary with 'encrypted_mnemonic_phrase' and 'wallet_address'
 
 class TransactionResponse(BaseModel):
     transaction_id: str

@@ -4,6 +4,7 @@ from app.services.transactions import TransactionService
 from app.schemas import SendPaymentRequest, SendPaymentResponse # Import the new response schema
 from typing import Annotated
 from fastapi import Header
+from app.services.wallets import WalletService
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -20,18 +21,19 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 @router.post("/send", response_model=SendPaymentResponse)
 async def send_funds(
     payment_in: SendPaymentRequest,
+    wallet_service: WalletService = Depends(),
     transaction_service: TransactionService = Depends(),
 ):
     """Allows a user to send Algos or stablecoins."""
-    user_id = payment_in.user_id
-    if not user_id:
-        raise HTTPException(status_code=401, detail="User authentication required")
-    # In a real application, you would retrieve the sender's private key
-    # securely based on the user_id. DO NOT hardcode or expose private keys.
-    # Example (replace with your secure key retrieval mechanism):
-    sender_wallet_info = await transaction_service.get_user_wallet_info(user_id)
-    if not sender_wallet_info or "private_key" not in sender_wallet_info:
-        raise HTTPException(status_code=404, detail="Sender wallet not found")
+    user_wallet_data = payment_in.user_wallet
+    if not user_wallet_data or "encrypted_mnemonic" not in user_wallet_data or "wallet_address" not in user_wallet_data:
+        raise HTTPException(status_code=400, detail="Invalid user wallet data provided")
+
+    sender_wallet_info = await transaction_service.get_user_wallet_info(user_wallet_data)
+    print(f"Sender wallet data: {user_wallet_data}")
+    print(f"Sender wallet info: {sender_wallet_info}")
+    if not sender_wallet_info or "private_key" not in sender_wallet_info or "wallet_address" not in sender_wallet_info:
+        raise HTTPException(status_code=500, detail="Failed to retrieve sender wallet details")
 
     sender_private_key = sender_wallet_info["private_key"]
     sender_address = sender_wallet_info["wallet_address"]
