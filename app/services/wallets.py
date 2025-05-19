@@ -86,12 +86,9 @@ class WalletService:
         """
         Validates if a given Algorand wallet address is valid and exists on the blockchain.
         """
-        print(f"Validating wallet address: {validate_request.wallet_address}")  # Log the wallet address for debugging
-        print(f"Validating wallet address: {settings.ALGORAND_NODE_URL}")  # Log the wallet address for debugging
         wallet_address = validate_request.wallet_address
         try:
             account_info = self.algod_client.account_info(wallet_address)
-            print(f"Account info for {wallet_address}: {account_info}")  # Log the account info for debugging
             # If the account_info is successfully fetched, the address exists.
             return ValidateWalletResponse(is_valid=True, wallet_address=wallet_address)
         except Exception as e:
@@ -101,7 +98,6 @@ class WalletService:
                 return ValidateWalletResponse(is_valid=False, wallet_address=wallet_address)
             else:
                 # For other errors (e.g., network issues), you might want to log them or raise an exception.
-                print(f"Error validating wallet address: {e}") # Log the error
                 return ValidateWalletResponse(is_valid=False, wallet_address=wallet_address) #Consider if you want to raise
                 # raise Exception(f"Error validating wallet address: {e}") # Or raise.
 
@@ -116,7 +112,6 @@ class WalletService:
         # Step 1: Generate new wallet for user
         user_private_key, user_address = account.generate_account()
         user_mnemonic_phrase = mnemonic.from_private_key(user_private_key)
-        print("User Address:", user_address)
 
         try:
             # Step 2: Derive funder's private key

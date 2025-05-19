@@ -35,9 +35,7 @@ async def send_funds(
             raise HTTPException(status_code=500, detail="Failed to retrieve sender wallet details")
 
         sender_private_key = sender_wallet_info["private_key"]
-        print(f"Sender Private Key: {sender_private_key}")
         sender_address = sender_wallet_info["wallet_address"]
-        print(f"Sender Address: {sender_address}")
 
 
         return await transaction_service.send_payment(payment_in, sender_private_key, sender_address)
