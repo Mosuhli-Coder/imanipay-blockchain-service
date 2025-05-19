@@ -4,3 +4,4 @@ uvicorn
 py-algorand-sdk
 python-dotenv
 httpx
+cryptography

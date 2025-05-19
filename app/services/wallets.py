@@ -5,6 +5,7 @@ from algosdk.transaction import  PaymentTxn, AssetTransferTxn, assign_group_id
 from app.core.config import settings
 from app.schemas import WalletResponse, BalanceResponse, BalanceRequest, ValidateWalletRequest, ValidateWalletResponse # Import the new schema
 from typing import Dict
+from cryptography.fernet import Fernet
 
 headers = {
     "X-API-Key": settings.ALGORAND_API_KEY
@@ -29,6 +30,8 @@ class WalletService:
 
         self.network = network
         self.funder_mnemonic = settings.FUNDER_MNEMONIC_KEY
+        self.fernet_key = settings.FERNET_KEY
+        # self.fernet_key = "gVFGVJAqMGQxAXoPWiHIvEAaZlwjTU6qWo2itZqdLtc="
 
     def get_private_key_from_mnemonic(self, stored_mnemonic: str) -> str:
         """
@@ -36,6 +39,25 @@ class WalletService:
         """
         private_key = mnemonic.to_private_key(stored_mnemonic)
         return private_key
+
+    def _encrypt_mnemonic(self, mnemonic_phrase: str) -> str:
+        key = self.fernet_key
+        print(f"FERNET_KEY: {key}")  # Log the key for debugging
+        print(f"FERNET_KEY: {self.fernet_key}")
+        if not key:
+            raise ValueError("FERNET_KEY is not set in environment variables")
+        fernet = Fernet(key.encode())
+        encrypted = fernet.encrypt(mnemonic_phrase.encode())
+        return encrypted.decode()
+
+    def _decrypt_mnemonic(self, encrypted_mnemonic: str) -> str:
+        key = self.fernet_key
+        if not key:
+            raise ValueError("FERNET_KEY is not set in environment variables")
+        fernet = Fernet(key.encode())
+        decrypted = fernet.decrypt(encrypted_mnemonic.encode())
+        return decrypted.decode()
+
 
     async def wait_for_confirmation(self, txid):
         while True:
@@ -64,12 +86,9 @@ class WalletService:
         """
         Validates if a given Algorand wallet address is valid and exists on the blockchain.
         """
-        print(f"Validating wallet address: {validate_request.wallet_address}")  # Log the wallet address for debugging
-        print(f"Validating wallet address: {settings.ALGORAND_NODE_URL}")  # Log the wallet address for debugging
         wallet_address = validate_request.wallet_address
         try:
             account_info = self.algod_client.account_info(wallet_address)
-            print(f"Account info for {wallet_address}: {account_info}")  # Log the account info for debugging
             # If the account_info is successfully fetched, the address exists.
             return ValidateWalletResponse(is_valid=True, wallet_address=wallet_address)
         except Exception as e:
@@ -79,29 +98,9 @@ class WalletService:
                 return ValidateWalletResponse(is_valid=False, wallet_address=wallet_address)
             else:
                 # For other errors (e.g., network issues), you might want to log them or raise an exception.
-                print(f"Error validating wallet address: {e}") # Log the error
                 return ValidateWalletResponse(is_valid=False, wallet_address=wallet_address) #Consider if you want to raise
                 # raise Exception(f"Error validating wallet address: {e}") # Or raise.
 
-    async def create_wallet(self) -> WalletResponse:
-        """Creates a new Algorand wallet and returns the address and private key.  For development only."""
-        # private_key, address = account.generate_account()
-        # IMPORTANT:  In a real application, you would NEVER return the private key directly.
-        # This is ONLY for development and testing.  You would typically store the private key
-        # securely and associate it with a user in your main backend's database.
-        private_key, address = account.generate_account()
-        mnemonic_phrase = mnemonic.from_private_key(private_key)
-
-        print("Address:", address)
-        print("Private Key:", private_key)
-        print("Mnemonic:", mnemonic_phrase)  # This is the one you must save securely.
-        return WalletResponse(wallet_address=address, private_key=private_key, user_id="cm9mmryqn0000iiacyvegcftm") # Include private_key in the response
-
-        # Example usage (assuming you have the mnemonic stored in your database)
-
-
-        # stored_mnemonic_in_db = "your 25-word mnemonic phrase here..."
-    
     async def generate_and_opt_in_wallet(self, user_id: str) -> dict:
         """
         Generates a new Algorand wallet for a user, opts it into USDC, and funds it from the funder's wallet.
@@ -113,7 +112,6 @@ class WalletService:
         # Step 1: Generate new wallet for user
         user_private_key, user_address = account.generate_account()
         user_mnemonic_phrase = mnemonic.from_private_key(user_private_key)
-        print("User Address:", user_address)
 
         try:
             # Step 2: Derive funder's private key
@@ -156,13 +154,14 @@ class WalletService:
 
             # Step 9: Wait for confirmation
             self.algod_client.pending_transaction_info(txid)
+            encrypted = self._encrypt_mnemonic(user_mnemonic_phrase)
 
             return {
                 "user_id": user_id,
                 "wallet_address": user_address,
                 "opted_in_usdc": True,
                 "network": self.network,
-                "mnemonic_phrase": user_mnemonic_phrase,
+                "encrypted_mnemonic_phrase": encrypted,
             }
 
         except Exception as e:

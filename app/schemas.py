@@ -21,7 +21,9 @@ class SendPaymentRequest(BaseModel):
     sender_wallet_address: str
     receiver_wallet_address: str
     amount: float
-    asset_id: int = 0  # 0 for ALGO, ASA ID for other assets
+    asset_name: str
+    user_id: str
+    user_wallet: Dict[str, str]  # Expecting a dictionary with 'encrypted_mnemonic_phrase' and 'wallet_address'
 
 class TransactionResponse(BaseModel):
     transaction_id: str
@@ -67,5 +69,5 @@ class CreateWalletOptInResponse(BaseModel):
     wallet_address: Optional[str]  # ✅ Make it optional
     opted_in_usdc: bool
     network: str
-    mnemonic_phrase: Optional[str]
+    encrypted_mnemonic_phrase: Optional[str]
     error: Optional[str] = None

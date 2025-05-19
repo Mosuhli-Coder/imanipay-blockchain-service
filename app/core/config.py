@@ -20,7 +20,9 @@ class Settings:
     ALGORAND_NETWORK: str = os.getenv("ALGORAND_NETWORK", "testnet")
     IMANIPAY_WALLET_ADDRESS: str = os.getenv("IMANIPAY_WALLET_ADDRESS")
     FUNDER_MNEMONIC_KEY: str = os.getenv("FUNDER_MNEMONIC_KEY")
+    FERNET_KEY: str = os.getenv("FERNET_KEY")
     USDC_ASSET_ID = 10458941 if ALGORAND_NETWORK == "testnet" else os.getenv("USDC_ASSET_ID")
+    USDT_ASSET_ID = 10458941 if ALGORAND_NETWORK == "testnet" else os.getenv("USDT_ASSET_ID")
 
     # def print_debug(self):
     #     print("Debugging Settings:")
