@@ -15,7 +15,8 @@ class BalanceRequest(BaseModel):
 
 class BalanceResponse(BaseModel):
     wallet_address: str
-    balances: dict
+    balance: float
+    assets: Dict[int, float]
 
 class SendPaymentRequest(BaseModel):
     sender_wallet_address: str

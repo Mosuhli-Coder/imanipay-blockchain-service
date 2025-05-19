@@ -64,24 +64,34 @@ class WalletService:
             tx_info = await self.algod_client.pending_transaction_info(txid)
             if tx_info.get("confirmed-round", 0) > 0:
                 break
-    async def get_balance(self, balance_request: BalanceRequest) -> BalanceResponse:
-        """Retrieves the balance of a given Algorand wallet address directly from the blockchain."""
-        wallet_address = balance_request.wallet_address
-        try:
-            account_info = self.algod_client.account_info(wallet_address)
-            balances: Dict[int, float] = {0: account_info.get("amount", 0) / 1_000_000}
+    async def get_balance(self, balance_in: dict) -> dict:
+        """Retrieves the balance of a given Algorand wallet address with asset names."""
+        wallet_address = balance_in.get("wallet_address")
+        if not wallet_address:
+            raise ValueError("Wallet address is required")
+        account_info = self.algod_client.account_info(wallet_address)
+        balance = (
+            account_info.get("amount", 0) / 1_000_000
+        )  # Convert microAlgos to Algos
+        assets = account_info.get("assets", [])
+        asset_balances = {}
+        for asset in assets:
+            asset_id = asset["asset-id"]
+            asset_info = self.algod_client.asset_info(asset_id)
+            if asset_info and "params" in asset_info:
+                params = asset_info["params"]
+                decimals = params.get("decimals", 0)
+                name = params.get("name", f"Asset {asset_id}")
+                scaled_balance = asset["amount"] / (10**decimals)
+                asset_balances[asset_id] = {"balance": scaled_balance, "name": name}
+            else:
+                asset_balances[asset_id] = {"balance": asset["amount"], "name": f"Asset {asset_id}"}
 
-            for asset in account_info.get("assets", []):
-                if "asset-id" in asset:
-                    asset_id = asset["asset-id"]
-                    asset_info = self.algod_client.asset_info(asset_id)
-                    decimals = asset_info.get("params", {}).get("decimals", 0)
-                    balances[asset_id] = asset.get("amount", 0) / (10 ** decimals)
-
-            return BalanceResponse(wallet_address=wallet_address, balances=balances)
-        except Exception as e:
-            raise Exception(f"Failed to get balance for address '{wallet_address}': {e}")
-
+        return {
+            "wallet_address": wallet_address,
+            "balance": balance,
+            "assets": asset_balances,
+        }
     async def validate_wallet(self, validate_request: ValidateWalletRequest) -> ValidateWalletResponse:
         """
         Validates if a given Algorand wallet address is valid and exists on the blockchain.
