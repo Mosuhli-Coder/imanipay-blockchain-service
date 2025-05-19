@@ -30,8 +30,8 @@ class WalletService:
 
         self.network = network
         self.funder_mnemonic = settings.FUNDER_MNEMONIC_KEY
-        # self.fernet_key = settings.FERNET_KEY
-        self.fernet_key = "gVFGVJAqMGQxAXoPWiHIvEAaZlwjTU6qWo2itZqdLtc="
+        self.fernet_key = settings.FERNET_KEY
+        # self.fernet_key = "gVFGVJAqMGQxAXoPWiHIvEAaZlwjTU6qWo2itZqdLtc="
 
     def get_private_key_from_mnemonic(self, stored_mnemonic: str) -> str:
         """
